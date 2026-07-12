@@ -68,7 +68,14 @@ async def create_wireguard_peer(
             wg_interface_name,
             client_public_key,
             payload.allowed_ip,
-            payload.description or payload.username,
+            # Always the username, never the description: sync_vpn_peers()
+            # matches DB rows to live router peers by reading this same
+            # comment field back as `peer_name` on every poll (see
+            # RouterService.get_wireguard_peers). If this ever diverges from
+            # the peer_name used below when inserting the VPNPeer row, the
+            # next poll won't recognize it as the same peer and will insert
+            # a duplicate row instead of updating this one.
+            payload.username,
         )
     except RouterCommandError as exc:
         raise VpnServiceError(str(exc)) from exc
