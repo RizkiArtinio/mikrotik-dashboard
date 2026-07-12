@@ -1,0 +1,31 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+gunicorn==23.0.0
+sqlalchemy==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
+pydantic==2.10.4
+pydantic-settings==2.7.1
+email-validator==2.2.0
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+# passlib 1.7.4 probes bcrypt.__about__.__version__, which bcrypt>=4.1 removed
+# (harmless "trapped error reading bcrypt version" log spam, but pin below it
+# to keep the logs clean and stay on the version passlib is actually tested against).
+bcrypt==4.0.1
+cryptography==44.0.0
+routeros-api==0.21.0
+paramiko==3.5.0
+apscheduler==3.11.0
+websockets==14.1
+httpx==0.28.1
+aiosmtplib==3.0.2
+qrcode[pil]==8.0
+Pillow==11.0.0
+python-multipart==0.0.20
+icmplib==3.0.4
+python-dotenv==1.0.1
+
+# --- test tooling ---
+pytest==8.3.4
+pytest-asyncio==0.25.0
