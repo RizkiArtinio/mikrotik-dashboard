@@ -15,6 +15,7 @@ venv/
 node_modules/
 dist/
 .vite/
+*.tsbuildinfo
 
 # Backups (real router backup artifacts should never be committed)
 backend/backups/*
