@@ -162,6 +162,14 @@ class RouterService:
             for r in rows
         ]
 
+    def get_ip_pools(self) -> list[dict]:
+        rows = self._safe_get("/ip/pool")
+        return [{"name": r.get("name"), "ranges": r.get("ranges", "")} for r in rows]
+
+    def get_ip_addresses(self) -> list[dict]:
+        rows = self._safe_get("/ip/address")
+        return [{"address": r.get("address"), "interface": r.get("interface")} for r in rows]
+
     def get_ppp_active(self) -> list[dict]:
         rows = self._safe_get("/ppp/active")
         return [

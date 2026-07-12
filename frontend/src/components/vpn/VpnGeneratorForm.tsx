@@ -34,9 +34,9 @@ export function VpnGeneratorForm({
     <Stack component="form" onSubmit={handleSubmit} spacing={2} maxWidth={480}>
       <TextField label="Nama User" required value={form.username} onChange={field("username")} />
       <TextField
-        label="Allowed IP"
-        required
-        placeholder="10.10.10.5/32"
+        label="Allowed IP (opsional)"
+        placeholder="Kosongkan untuk auto-assign dari VPN pool router"
+        helperText="IP akan dipilih otomatis dari pool VPN yang sudah dikonfigurasi di router, kecuali diisi manual."
         value={form.allowed_ip}
         onChange={field("allowed_ip")}
       />

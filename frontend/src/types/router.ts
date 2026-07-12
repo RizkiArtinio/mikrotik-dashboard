@@ -8,6 +8,7 @@ export interface RouterItem {
   site: string | null;
   isp_gateway: string | null;
   wireguard_endpoint: string | null;
+  wireguard_pool_name: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -23,6 +24,7 @@ export interface RouterCreatePayload {
   site?: string;
   isp_gateway?: string;
   wireguard_endpoint?: string;
+  wireguard_pool_name?: string;
 }
 
 export type RouterUpdatePayload = Partial<RouterCreatePayload> & { is_active?: boolean };

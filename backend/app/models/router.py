@@ -19,6 +19,10 @@ class Router(Base):
     site: Mapped[str | None] = mapped_column(String(150), nullable=True)
     isp_gateway: Mapped[str | None] = mapped_column(String(45), nullable=True)
     wireguard_endpoint: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Name of an existing /ip pool on the router (e.g. "vpn-pool") the VPN
+    # generator draws free IPs from when the operator doesn't specify one.
+    # Left unset, allowed_ip must be provided manually per peer.
+    wireguard_pool_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     # Reserved for future SNMP polling path — unused in v1.
     snmp_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

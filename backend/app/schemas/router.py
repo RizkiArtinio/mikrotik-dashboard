@@ -13,6 +13,7 @@ class RouterCreate(BaseModel):
     site: str | None = None
     isp_gateway: str | None = None
     wireguard_endpoint: str | None = None
+    wireguard_pool_name: str | None = None
 
 
 class RouterUpdate(BaseModel):
@@ -25,6 +26,7 @@ class RouterUpdate(BaseModel):
     site: str | None = None
     isp_gateway: str | None = None
     wireguard_endpoint: str | None = None
+    wireguard_pool_name: str | None = None
     is_active: bool | None = None
 
 
@@ -38,6 +40,7 @@ class RouterOut(BaseModel):
     site: str | None
     isp_gateway: str | None
     wireguard_endpoint: str | None
+    wireguard_pool_name: str | None
     is_active: bool
     created_at: datetime
     updated_at: datetime

@@ -20,7 +20,8 @@ export interface VpnPeer {
 
 export interface WireguardPeerCreatePayload {
   username: string;
-  allowed_ip: string;
+  /** Leave empty to auto-assign the next free IP from Router.wireguard_pool_name. */
+  allowed_ip?: string;
   dns: string;
   endpoint?: string;
   description?: string;

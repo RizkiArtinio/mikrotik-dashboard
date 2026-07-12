@@ -40,6 +40,7 @@ async def create_router(payload: RouterCreate, db: AsyncSession = Depends(get_db
         site=payload.site,
         isp_gateway=payload.isp_gateway,
         wireguard_endpoint=payload.wireguard_endpoint,
+        wireguard_pool_name=payload.wireguard_pool_name,
     )
     db.add(router)
     await db.commit()

@@ -7,7 +7,11 @@ from app.models.vpn_peer import VpnPeerStatus, VpnType
 
 class WireguardPeerCreate(BaseModel):
     username: str = Field(..., description="Human-readable peer/user name")
-    allowed_ip: str = Field(..., description="e.g. 10.10.10.5/32")
+    allowed_ip: str | None = Field(
+        default=None,
+        description="e.g. 10.10.10.5/32. Leave empty to auto-assign the next free IP from "
+        "Router.wireguard_pool_name.",
+    )
     dns: str = Field(default="1.1.1.1")
     endpoint: str | None = Field(
         default=None, description="Router's public endpoint host:port; defaults to Router.wireguard_endpoint"
