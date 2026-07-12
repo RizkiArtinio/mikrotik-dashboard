@@ -38,11 +38,16 @@ class RouterService:
         return api.get_resource(path)
 
     def _safe_get(self, path: str, **query) -> list[dict]:
-        try:
-            resource = self._resource(path)
-            return resource.get(**query) if query else resource.get()
-        except RouterOsApiCommunicationError as exc:
-            raise RouterCommandError(f"Command failed on {path}: {exc}") from exc
+        # Held for connect + get: the pooled connection's socket is shared
+        # across every call site for this router, and routeros-api's
+        # send/receive protocol is not safe for concurrent multi-threaded
+        # use of the same socket (see RouterConnectionPool.get_io_lock).
+        with connection_pool.get_io_lock(self.router.id):
+            try:
+                resource = self._resource(path)
+                return resource.get(**query) if query else resource.get()
+            except RouterOsApiCommunicationError as exc:
+                raise RouterCommandError(f"Command failed on {path}: {exc}") from exc
 
     # ------------------------------------------------------------------
     # Required RouterService methods
@@ -270,23 +275,24 @@ class RouterService:
     def create_wireguard_peer(
         self, interface: str, public_key: str, allowed_address: str, comment: str | None = None
     ) -> dict:
-        resource = self._resource("/interface/wireguard/peers")
         params = {"interface": interface, "public-key": public_key, "allowed-address": allowed_address}
         if comment:
             params["comment"] = comment
-        try:
-            resource.add(**params)
-        except RouterOsApiCommunicationError as exc:
-            raise RouterCommandError(f"Failed to create WireGuard peer: {exc}") from exc
+        with connection_pool.get_io_lock(self.router.id):
+            try:
+                self._resource("/interface/wireguard/peers").add(**params)
+            except RouterOsApiCommunicationError as exc:
+                raise RouterCommandError(f"Failed to create WireGuard peer: {exc}") from exc
         return params
 
     def create_backup(self, name: str) -> dict:
         """Triggers both a binary .backup and a plaintext .rsc export on the
         router filesystem. Returns the filenames — actual download from the
         router (SFTP) is handled by backup_service.py."""
-        try:
-            self._resource("/system/backup").call("save", {"name": name})
-            self._resource("/export").call("export", {"file": name})
-        except RouterOsApiCommunicationError as exc:
-            raise RouterCommandError(f"Backup command failed: {exc}") from exc
+        with connection_pool.get_io_lock(self.router.id):
+            try:
+                self._resource("/system/backup").call("save", {"name": name})
+                self._resource("/export").call("export", {"file": name})
+            except RouterOsApiCommunicationError as exc:
+                raise RouterCommandError(f"Backup command failed: {exc}") from exc
         return {"backup_file": f"{name}.backup", "rsc_file": f"{name}.rsc"}

@@ -20,6 +20,22 @@ class RouterConnectionPool:
     def __init__(self) -> None:
         self._pools: dict[int, routeros_api.RouterOsApiPool] = {}
         self._lock = threading.Lock()
+        self._io_locks: dict[int, threading.Lock] = {}
+
+    def get_io_lock(self, router_id: int) -> threading.Lock:
+        """One lock per router, held for the duration of an actual RouterOS
+        command (send + receive). `routeros-api`'s socket protocol is not
+        safe for concurrent multi-threaded use of the same connection —
+        without this, concurrent calls (e.g. the scheduler's poll firing
+        get_resources/get_health/get_interfaces/get_vpn at once, or a poll
+        overlapping a manual API request) corrupt the response stream and
+        surface as `OSError: [Errno 9] Bad file descriptor`."""
+        with self._lock:
+            lock = self._io_locks.get(router_id)
+            if lock is None:
+                lock = threading.Lock()
+                self._io_locks[router_id] = lock
+            return lock
 
     def get_api(self, router: Router) -> routeros_api.api.RouterOsApi:
         with self._lock:

@@ -1,0 +1,19 @@
+# Local testing only — used before you're ready to set up the domain +
+# Let's Encrypt (nginx/certbot). Exposes the backend directly on a host port
+# so you can confirm router connectivity via Swagger UI and/or run the
+# frontend with `npm run dev` (frontend/vite.config.ts already proxies /api
+# and /ws to http://localhost:8000 in dev mode — no separate frontend
+# container/port needed for this stage).
+#
+# docker compose automatically merges this file when present, so:
+#   docker compose --env-file ../.env up -d postgres backend
+# gives you:
+#   API + Swagger docs -> http://localhost:8000/api/docs
+#
+# The built `frontend` container is NOT exposed here on purpose: it serves
+# static files only and has no /api or /ws proxy of its own (that's nginx's
+# job in production). Delete this file once nginx + certbot are in use.
+services:
+  backend:
+    ports:
+      - "8000:8000"
