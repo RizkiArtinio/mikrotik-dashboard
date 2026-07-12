@@ -53,6 +53,13 @@ class RouterService:
     # Required RouterService methods
     # ------------------------------------------------------------------
 
+    # RouterOS reports short type codes on /interface print (confirmed
+    # against a real RB4011: WireGuard interfaces come back as "wg", not
+    # "wireguard"). Normalize to the names used throughout this app so type
+    # comparisons (e.g. vpn_service picking a WireGuard interface) work
+    # regardless of which short code RouterOS happens to use.
+    _INTERFACE_TYPE_ALIASES = {"wg": "wireguard"}
+
     def get_interfaces(self) -> list[dict]:
         """Raw interface counters from /interface print. bps is NOT computed
         here — the scheduler derives it from the delta between consecutive
@@ -61,7 +68,9 @@ class RouterService:
         return [
             {
                 "name": r.get("name"),
-                "type": r.get("type", "ether"),
+                "type": self._INTERFACE_TYPE_ALIASES.get(
+                    r.get("type", "ether"), r.get("type", "ether")
+                ),
                 "running": r.get("running") == "true",
                 "disabled": r.get("disabled") == "true",
                 "rx_bytes": int(r.get("rx-byte", 0) or 0),
