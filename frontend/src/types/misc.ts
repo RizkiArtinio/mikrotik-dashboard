@@ -19,8 +19,8 @@ export interface NatStatsResponse {
 
 export interface DhcpLease {
   hostname: string | null;
-  mac_address: string;
-  ip_address: string;
+  mac_address: string | null;
+  ip_address: string | null;
   status: string | null;
   expires_after: string | null;
 }

@@ -26,8 +26,8 @@ export function DhcpLeaseTable({ leases }: { leases: DhcpLease[] }) {
           {leases.map((lease, idx) => (
             <TableRow key={idx} hover>
               <TableCell>{lease.hostname ?? "—"}</TableCell>
-              <TableCell>{lease.mac_address}</TableCell>
-              <TableCell>{lease.ip_address}</TableCell>
+              <TableCell>{lease.mac_address ?? "—"}</TableCell>
+              <TableCell>{lease.ip_address ?? "—"}</TableCell>
               <TableCell>{lease.status ?? "—"}</TableCell>
               <TableCell>{lease.expires_after ?? "—"}</TableCell>
             </TableRow>
