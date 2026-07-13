@@ -228,6 +228,39 @@ class RouterService:
                 raise RouterCommandError(f"Failed to export certificate {cert_name}: {exc}") from exc
         return f"cert_export_{cert_name}.crt"
 
+    def issue_client_certificate(self, name: str) -> None:
+        """Creates a new certificate entry and signs it with the router's
+        own CA. OpenVPN Connect (unlike the plain `openvpn` CLI) refuses to
+        connect without an inline client certificate even when the server's
+        require-client-certificate is off — confirmed by testing the same
+        generated .ovpn against both."""
+        with connection_pool.get_io_lock(self.router.id):
+            try:
+                cert_resource = self._resource("/certificate")
+                cert_resource.add(**{"name": name, "common-name": name, "key-usage": "tls-client"})
+                entry = next((c for c in cert_resource.get() if c.get("name") == name), None)
+                if entry is None:
+                    raise RouterCommandError(f"Certificate '{name}' was created but could not be found afterward.")
+                # The sign command takes the entry's internal ".id", not its
+                # name (unlike export-certificate, which takes "numbers=<name>").
+                cert_resource.call("sign", {".id": entry["id"], "ca": "CA"})
+            except RouterOsApiCommunicationError as exc:
+                raise RouterCommandError(f"Failed to issue client certificate '{name}': {exc}") from exc
+
+    def export_certificate_and_key_pem(self, cert_name: str, passphrase: str) -> tuple[str, str]:
+        """Exports both the certificate and its (passphrase-encrypted)
+        private key. RouterOS only includes the .key file in the export if
+        export-passphrase is set — plain `type=pem` alone exports the
+        certificate only."""
+        with connection_pool.get_io_lock(self.router.id):
+            try:
+                self._resource("/certificate").call(
+                    "export-certificate", {"numbers": cert_name, "type": "pem", "export-passphrase": passphrase}
+                )
+            except RouterOsApiCommunicationError as exc:
+                raise RouterCommandError(f"Failed to export certificate {cert_name}: {exc}") from exc
+        return f"cert_export_{cert_name}.crt", f"cert_export_{cert_name}.key"
+
     def get_hotspot_active(self) -> list[dict]:
         try:
             rows = self._safe_get("/ip/hotspot/active")

@@ -1,9 +1,11 @@
 import asyncio
 import ipaddress
+import logging
 import secrets
 import string
 from datetime import datetime, timezone
 
+from cryptography.hazmat.primitives import serialization
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,8 +22,10 @@ from app.schemas.vpn_peer import (
 )
 from app.services.qr_service import generate_qr_base64
 from app.services.router_service import RouterCommandError, RouterService
-from app.services.sftp_client import fetch_to_text
+from app.services.sftp_client import fetch_to_text, remove_remote_file
 from app.services.wireguard_keygen import generate_keypair
+
+logger = logging.getLogger(__name__)
 
 
 class VpnServiceError(Exception):
@@ -257,7 +261,17 @@ _CIPHER_TO_OPENVPN = {
 }
 
 
-def _build_ovpn_config(*, server_address: str, port: int, protocol: str, cipher: str, auth: str, ca_pem: str) -> str:
+def _build_ovpn_config(
+    *,
+    server_address: str,
+    port: int,
+    protocol: str,
+    cipher: str,
+    auth: str,
+    ca_pem: str,
+    cert_pem: str,
+    key_pem: str,
+) -> str:
     ovpn_cipher = _CIPHER_TO_OPENVPN.get(cipher.lower(), cipher.upper())
     ovpn_auth = auth.upper()
     return (
@@ -269,6 +283,10 @@ def _build_ovpn_config(*, server_address: str, port: int, protocol: str, cipher:
         "nobind\n"
         "persist-key\n"
         "persist-tun\n"
+        # Dual auth: OpenVPN Connect (unlike the plain openvpn CLI) refuses
+        # to connect without an inline client cert even though the router's
+        # OpenVPN server itself doesn't require one — auth-user-pass stays
+        # so the router's PPP secret (username/password) is still checked too.
         "auth-user-pass\n"
         f"cipher {ovpn_cipher}\n"
         f"auth {ovpn_auth}\n"
@@ -276,7 +294,37 @@ def _build_ovpn_config(*, server_address: str, port: int, protocol: str, cipher:
         "<ca>\n"
         f"{ca_pem.strip()}\n"
         "</ca>\n"
+        "<cert>\n"
+        f"{cert_pem.strip()}\n"
+        "</cert>\n"
+        "<key>\n"
+        f"{key_pem.strip()}\n"
+        "</key>\n"
     )
+
+
+def _decrypt_private_key_pem(encrypted_pem: str, passphrase: str) -> str:
+    private_key = serialization.load_pem_private_key(encrypted_pem.encode(), password=passphrase.encode())
+    return private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode()
+
+
+async def _fetch_with_retry(router: Router, filename: str, attempts: int = 6, delay: float = 1.0) -> str:
+    """RouterOS writes certificate export files to disk slightly after the
+    export-certificate command returns (confirmed empirically: the .crt
+    appears almost immediately, the .key can lag by a few seconds) — retry
+    instead of relying on a single fixed sleep."""
+    last_error: Exception | None = None
+    for _ in range(attempts):
+        try:
+            return await asyncio.to_thread(fetch_to_text, router, filename)
+        except Exception as exc:  # noqa: BLE001 - genuinely any SFTP/IO failure should retry
+            last_error = exc
+            await asyncio.sleep(delay)
+    raise VpnServiceError(f"Could not fetch '{filename}' from the router via SFTP: {last_error}")
 
 
 async def create_ovpn_peer(
@@ -308,13 +356,36 @@ async def create_ovpn_peer(
         raise VpnServiceError(str(exc)) from exc
 
     try:
+        # The client certificate is issued under the same name as the PPP
+        # username and left on the router permanently (it's the TLS trust
+        # anchor for this peer going forward, not a one-off export).
+        await asyncio.to_thread(service.issue_client_certificate, username)
+
         ca_filename = await asyncio.to_thread(service.export_certificate_pem, "CA")
-        # Give RouterOS a moment to flush the export to disk before fetching.
-        await asyncio.sleep(1)
-        ca_pem = await asyncio.to_thread(fetch_to_text, router, ca_filename)
+        ca_pem = await _fetch_with_retry(router, ca_filename)
+
+        key_passphrase = _generate_password(20)  # transient — only used to decrypt below, never stored or shown
+        cert_filename, key_filename = await asyncio.to_thread(
+            service.export_certificate_and_key_pem, username, key_passphrase
+        )
+        cert_pem = await _fetch_with_retry(router, cert_filename)
+        encrypted_key_pem = await _fetch_with_retry(router, key_filename)
+        key_pem = _decrypt_private_key_pem(encrypted_key_pem, key_passphrase)
+
+        # The exported copies (cert + encrypted key) served their purpose
+        # once fetched — remove them so a private key isn't left sitting on
+        # the router's filesystem. Best-effort: this must not fail the
+        # overall request since the peer is already fully usable at this point.
+        for exported_file in (ca_filename, cert_filename, key_filename):
+            try:
+                await asyncio.to_thread(remove_remote_file, router, exported_file)
+            except Exception:
+                logger.warning("Could not remove exported file %s from router %s", exported_file, router.id)
+    except VpnServiceError:
+        raise
     except Exception as exc:
         raise VpnServiceError(
-            f"OpenVPN account was created, but the CA certificate could not be retrieved via SFTP "
+            f"OpenVPN account was created, but its certificate could not be retrieved via SFTP "
             f"(check SSH is enabled on the router at Router.ssh_port): {exc}"
         ) from exc
 
@@ -325,6 +396,8 @@ async def create_ovpn_peer(
         cipher=server_config["cipher"],
         auth=server_config["auth"],
         ca_pem=ca_pem,
+        cert_pem=cert_pem,
+        key_pem=key_pem,
     )
 
     peer = VPNPeer(
