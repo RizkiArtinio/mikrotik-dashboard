@@ -1,3 +1,4 @@
+from app.services.router_service import RouterService
 from app.services.vpn_service import _build_client_config, _generate_password, _generate_username
 from app.services.wireguard_keygen import generate_keypair
 
@@ -39,3 +40,23 @@ def test_generate_password_is_random_and_reasonably_long():
     assert len(passwords) == 20
     for pw in passwords:
         assert len(pw) == 14
+
+
+def test_ovpn_cipher_prefers_aes_over_legacy_blowfish():
+    # Reproduces the real router's cipher list — naively picking index 0
+    # here previously selected "blowfish128" (BF-CBC), which modern OpenVPN
+    # Connect builds refuse to use at all ("BF-CBC: not usable").
+    picked = RouterService._pick_preferred(
+        ["blowfish128", "aes128-cbc", "aes256-cbc"], RouterService._CIPHER_PREFERENCE
+    )
+    assert picked == "aes256-cbc"
+
+
+def test_ovpn_cipher_falls_back_to_first_available_when_nothing_preferred():
+    picked = RouterService._pick_preferred(["some-future-cipher"], RouterService._CIPHER_PREFERENCE)
+    assert picked == "some-future-cipher"
+
+
+def test_ovpn_auth_prefers_sha256_over_sha1():
+    picked = RouterService._pick_preferred(["sha1", "md5", "sha256", "sha512"], RouterService._AUTH_PREFERENCE)
+    assert picked == "sha256"

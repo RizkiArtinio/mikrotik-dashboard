@@ -205,15 +205,36 @@ class RouterService:
             return None
         return rows[0].get("ipsec-secret")
 
+    # RouterOS lists the ciphers/digests it will ACCEPT, in no particular
+    # order of preference — server config was seen as "blowfish128,aes128-cbc,
+    # aes256-cbc", and naively taking the first entry meant every generated
+    # .ovpn selected BF-CBC. Modern OpenVPN clients (OpenVPN Connect, built
+    # against OpenSSL 3.x, which dropped Blowfish) reject that outright with
+    # "BF-CBC: not usable" and never complete the connection, even though the
+    # same file works fine against an older `openvpn` CLI build that still
+    # carries a legacy provider. Pick the strongest option the server
+    # actually offers instead of whatever happens to be listed first.
+    _CIPHER_PREFERENCE = ["aes256-cbc", "aes192-cbc", "aes128-cbc", "blowfish128"]
+    _AUTH_PREFERENCE = ["sha256", "sha512", "sha1", "md5"]
+
+    @staticmethod
+    def _pick_preferred(available: list[str], preference: list[str]) -> str:
+        for candidate in preference:
+            if candidate in available:
+                return candidate
+        return available[0]
+
     def get_ovpn_server_config(self) -> dict:
         rows = self._safe_get("/interface/ovpn-server/server")
         r = rows[0] if rows else {}
+        available_ciphers = [c.strip() for c in (r.get("cipher") or "aes256-cbc").split(",") if c.strip()]
+        available_auth = [a.strip() for a in (r.get("auth") or "sha256").split(",") if a.strip()]
         return {
             "enabled": r.get("enabled") == "true",
             "port": int(r.get("port", 1194) or 1194),
             "protocol": r.get("protocol", "tcp"),
-            "cipher": (r.get("cipher") or "aes256-cbc").split(",")[0],
-            "auth": (r.get("auth") or "sha256").split(",")[0],
+            "cipher": self._pick_preferred(available_ciphers, self._CIPHER_PREFERENCE),
+            "auth": self._pick_preferred(available_auth, self._AUTH_PREFERENCE),
         }
 
     def export_certificate_pem(self, cert_name: str) -> str:
