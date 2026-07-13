@@ -25,6 +25,20 @@ class WireguardPeerResult(BaseModel):
     qr_code_base64: str
 
 
+class L2tpPeerCreate(BaseModel):
+    username: str | None = Field(default=None, description="Leave empty to auto-generate")
+    password: str | None = Field(default=None, description="Leave empty to auto-generate")
+    description: str | None = None
+
+
+class L2tpPeerResult(BaseModel):
+    peer: "VPNPeerOut"
+    server_address: str
+    username: str
+    password: str
+    ipsec_psk: str | None
+
+
 class VPNPeerOut(BaseModel):
     id: int
     router_id: int
@@ -46,3 +60,4 @@ class VPNPeerOut(BaseModel):
 
 
 WireguardPeerResult.model_rebuild()
+L2tpPeerResult.model_rebuild()

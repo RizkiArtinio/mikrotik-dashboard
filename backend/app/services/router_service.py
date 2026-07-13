@@ -183,6 +183,28 @@ class RouterService:
             for r in rows
         ]
 
+    def get_ppp_secrets(self) -> list[dict]:
+        rows = self._safe_get("/ppp/secret")
+        return [{"name": r.get("name"), "service": r.get("service")} for r in rows]
+
+    def create_ppp_secret(
+        self, username: str, password: str, service: str = "l2tp", profile: str = "default", comment: str | None = None
+    ) -> None:
+        params = {"name": username, "password": password, "service": service, "profile": profile}
+        if comment:
+            params["comment"] = comment
+        with connection_pool.get_io_lock(self.router.id):
+            try:
+                self._resource("/ppp/secret").add(**params)
+            except RouterOsApiCommunicationError as exc:
+                raise RouterCommandError(f"Failed to create PPP secret: {exc}") from exc
+
+    def get_l2tp_server_ipsec_secret(self) -> str | None:
+        rows = self._safe_get("/interface/l2tp-server/server")
+        if not rows:
+            return None
+        return rows[0].get("ipsec-secret")
+
     def get_hotspot_active(self) -> list[dict]:
         try:
             rows = self._safe_get("/ip/hotspot/active")

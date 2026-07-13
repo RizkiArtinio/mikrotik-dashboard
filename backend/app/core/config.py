@@ -45,6 +45,13 @@ class Settings(BaseSettings):
     telegram_enabled: bool = False
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
+    # Separate from telegram_enabled (which gates outbound alert notifications):
+    # this gates the inbound bot command listener (/generate, etc.).
+    telegram_bot_commands_enabled: bool = False
+    # Comma-separated chat IDs allowed to issue bot commands. Defaults to
+    # telegram_chat_id if left empty — anyone else messaging the bot is ignored,
+    # since bot commands can create real VPN accounts on the router.
+    telegram_allowed_chat_ids: str = ""
 
     # --- SMTP / Email ---
     email_enabled: bool = False
@@ -77,6 +84,11 @@ class Settings(BaseSettings):
     @property
     def alert_email_recipient_list(self) -> list[str]:
         return [e.strip() for e in self.alert_email_recipients.split(",") if e.strip()]
+
+    @property
+    def telegram_allowed_chat_id_list(self) -> list[str]:
+        raw = self.telegram_allowed_chat_ids or self.telegram_chat_id
+        return [c.strip() for c in raw.split(",") if c.strip()]
 
 
 @lru_cache

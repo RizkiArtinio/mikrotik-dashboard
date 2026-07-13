@@ -11,6 +11,7 @@ from app.db.init_db import run_startup_seed
 from app.db.session import AsyncSessionLocal
 from app.scheduler.scheduler import shutdown_scheduler, start_scheduler
 from app.services.router_connection_pool import connection_pool
+from app.services.telegram_bot import telegram_bot
 from app.websocket.ws_routes import router as ws_router
 
 configure_logging()
@@ -23,10 +24,12 @@ async def lifespan(app: FastAPI):
         await run_startup_seed(db)
 
     start_scheduler()
+    telegram_bot.start()
     logger.info("MikroTik dashboard backend started")
     try:
         yield
     finally:
+        await telegram_bot.stop()
         shutdown_scheduler()
         connection_pool.disconnect_all()
         logger.info("MikroTik dashboard backend stopped")

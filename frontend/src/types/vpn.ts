@@ -32,3 +32,19 @@ export interface WireguardPeerResult {
   config_text: string;
   qr_code_base64: string;
 }
+
+export interface L2tpPeerCreatePayload {
+  /** Leave empty to auto-generate. */
+  username?: string;
+  /** Leave empty to auto-generate. */
+  password?: string;
+  description?: string;
+}
+
+export interface L2tpPeerResult {
+  peer: VpnPeer;
+  server_address: string;
+  username: string;
+  password: string;
+  ipsec_psk: string | null;
+}

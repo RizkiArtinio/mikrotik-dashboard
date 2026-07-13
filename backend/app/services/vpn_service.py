@@ -1,5 +1,7 @@
 import asyncio
 import ipaddress
+import secrets
+import string
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -7,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.router import Router
 from app.models.vpn_peer import VPNPeer, VpnPeerStatus, VpnType
-from app.schemas.vpn_peer import VPNPeerOut, WireguardPeerCreate, WireguardPeerResult
+from app.schemas.vpn_peer import L2tpPeerCreate, L2tpPeerResult, VPNPeerOut, WireguardPeerCreate, WireguardPeerResult
 from app.services.qr_service import generate_qr_base64
 from app.services.router_service import RouterCommandError, RouterService
 from app.services.wireguard_keygen import generate_keypair
@@ -175,6 +177,63 @@ async def create_wireguard_peer(
 
     return WireguardPeerResult(
         peer=VPNPeerOut.model_validate(peer), config_text=config_text, qr_code_base64=qr_code_base64
+    )
+
+
+def _generate_username(prefix: str = "vpn") -> str:
+    suffix = "".join(secrets.choice(string.ascii_lowercase + string.digits) for _ in range(6))
+    return f"{prefix}-{suffix}"
+
+
+def _generate_password(length: int = 14) -> str:
+    alphabet = string.ascii_letters + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+async def create_l2tp_peer(
+    db: AsyncSession, router: Router, payload: L2tpPeerCreate, created_by_user_id: int | None
+) -> L2tpPeerResult:
+    service = RouterService(router)
+
+    existing_secrets = {s["name"] for s in await asyncio.to_thread(service.get_ppp_secrets)}
+
+    username = payload.username
+    if not username:
+        username = _generate_username()
+        while username in existing_secrets:
+            username = _generate_username()
+    elif username in existing_secrets:
+        raise VpnServiceError(f"A PPP secret named '{username}' already exists on this router.")
+
+    password = payload.password or _generate_password()
+
+    try:
+        await asyncio.to_thread(
+            service.create_ppp_secret, username, password, "l2tp", "default", payload.description
+        )
+    except RouterCommandError as exc:
+        raise VpnServiceError(str(exc)) from exc
+
+    ipsec_psk = await asyncio.to_thread(service.get_l2tp_server_ipsec_secret)
+
+    peer = VPNPeer(
+        router_id=router.id,
+        peer_name=username,
+        vpn_type=VpnType.l2tp,
+        description=payload.description,
+        status=VpnPeerStatus.configured,
+        created_by_user_id=created_by_user_id,
+    )
+    db.add(peer)
+    await db.commit()
+    await db.refresh(peer)
+
+    return L2tpPeerResult(
+        peer=VPNPeerOut.model_validate(peer),
+        server_address=router.ip_address,
+        username=username,
+        password=password,
+        ipsec_psk=ipsec_psk,
     )
 
 

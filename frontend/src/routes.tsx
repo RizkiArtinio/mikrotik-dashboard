@@ -10,6 +10,7 @@ import DhcpPage from "@/pages/DhcpPage";
 import FirewallPage from "@/pages/FirewallPage";
 import InterfacesPage from "@/pages/InterfacesPage";
 import IspPage from "@/pages/IspPage";
+import L2tpGeneratorPage from "@/pages/L2tpGeneratorPage";
 import LoginPage from "@/pages/LoginPage";
 import RouterAdminPage from "@/pages/RouterAdminPage";
 import UserAdminPage from "@/pages/UserAdminPage";
@@ -36,6 +37,14 @@ export function AppRoutes() {
                   element={
                     <RoleGate roles={["super_admin", "network_engineer"]}>
                       <VpnGeneratorPage />
+                    </RoleGate>
+                  }
+                />
+                <Route
+                  path="vpn/generate-l2tp"
+                  element={
+                    <RoleGate roles={["super_admin", "network_engineer"]}>
+                      <L2tpGeneratorPage />
                     </RoleGate>
                   }
                 />

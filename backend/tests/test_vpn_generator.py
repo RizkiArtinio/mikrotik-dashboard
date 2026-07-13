@@ -1,4 +1,4 @@
-from app.services.vpn_service import _build_client_config
+from app.services.vpn_service import _build_client_config, _generate_password, _generate_username
 from app.services.wireguard_keygen import generate_keypair
 
 
@@ -24,3 +24,18 @@ def test_build_client_config_contains_expected_sections():
     assert "[Peer]" in config
     assert "PublicKey = ROUTERPUBKEY" in config
     assert "Endpoint = vpn.example.com:13231" in config
+
+
+def test_generate_username_format_and_uniqueness():
+    names = {_generate_username() for _ in range(20)}
+    assert len(names) == 20
+    for name in names:
+        assert name.startswith("vpn-")
+        assert len(name) == len("vpn-") + 6
+
+
+def test_generate_password_is_random_and_reasonably_long():
+    passwords = {_generate_password() for _ in range(20)}
+    assert len(passwords) == 20
+    for pw in passwords:
+        assert len(pw) == 14

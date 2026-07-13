@@ -47,9 +47,11 @@ Copy `.env.example` to `.env` at the project root and fill in real values. `.env
 
 | Variable | Description |
 |---|---|
-| `TELEGRAM_ENABLED` | Must be `true` for Telegram alerts to send. |
+| `TELEGRAM_ENABLED` | Must be `true` for outbound Telegram *alerts* (router/VPN/ISP down, CPU/mem high) to send. |
 | `TELEGRAM_BOT_TOKEN` | From [@BotFather](https://t.me/BotFather) — `/newbot`, copy the token. |
-| `TELEGRAM_CHAT_ID` | The chat/group/channel ID to post alerts to. Message your bot once, then check `https://api.telegram.org/bot<TOKEN>/getUpdates` to find your chat ID. |
+| `TELEGRAM_CHAT_ID` | The chat/group/channel ID to post alerts to, and the default allowed chat for bot commands. Message your bot once, then check `https://api.telegram.org/bot<TOKEN>/getUpdates` to find your chat ID. |
+| `TELEGRAM_BOT_COMMANDS_ENABLED` | Must be `true` for the *inbound* bot command listener (`/generate`, `/routers`) to run — separate from `TELEGRAM_ENABLED` above. Off by default: only turn this on once `TELEGRAM_BOT_TOKEN` is set, since anyone who can message the bot from an allowed chat ID can create real VPN accounts on the router. |
+| `TELEGRAM_ALLOWED_CHAT_IDS` | Comma-separated chat IDs allowed to run bot commands. Defaults to `TELEGRAM_CHAT_ID` if left empty. Messages from any other chat ID are ignored. |
 
 ## Email / SMTP
 
