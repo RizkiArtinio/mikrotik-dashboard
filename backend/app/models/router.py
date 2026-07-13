@@ -15,6 +15,11 @@ class Router(Base):
     username: Mapped[str] = mapped_column(String(100), nullable=False)
     password_encrypted: Mapped[str] = mapped_column(String(512), nullable=False)
     api_port: Mapped[int] = mapped_column(Integer, default=8728, nullable=False)
+    # SSH/SFTP port used to retrieve files generated on the router (backups,
+    # exported certificates) — RouterOS's API has no "download file contents"
+    # command, so this is the only way to pull them off the device. Defaults
+    # to 22 but many hardened setups move it to a custom port.
+    ssh_port: Mapped[int] = mapped_column(Integer, default=22, nullable=False)
     use_ssl: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     site: Mapped[str | None] = mapped_column(String(150), nullable=True)
     isp_gateway: Mapped[str | None] = mapped_column(String(45), nullable=True)

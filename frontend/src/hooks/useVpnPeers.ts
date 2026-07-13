@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { vpnApi } from "@/services/vpnApi";
-import type { L2tpPeerCreatePayload, WireguardPeerCreatePayload } from "@/types/vpn";
+import type { L2tpPeerCreatePayload, OvpnPeerCreatePayload, WireguardPeerCreatePayload } from "@/types/vpn";
 
 export function useVpnPeers(routerId: number | null) {
   return useQuery({
@@ -25,6 +25,16 @@ export function useCreateL2tpPeer(routerId: number | null) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: L2tpPeerCreatePayload) => vpnApi.createL2tpPeer(routerId as number, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["vpn-peers", routerId] });
+    },
+  });
+}
+
+export function useCreateOvpnPeer(routerId: number | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: OvpnPeerCreatePayload) => vpnApi.createOvpnPeer(routerId as number, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["vpn-peers", routerId] });
     },

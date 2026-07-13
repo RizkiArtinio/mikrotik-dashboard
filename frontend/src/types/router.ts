@@ -4,6 +4,7 @@ export interface RouterItem {
   ip_address: string;
   username: string;
   api_port: number;
+  ssh_port: number;
   use_ssl: boolean;
   site: string | null;
   isp_gateway: string | null;
@@ -20,6 +21,7 @@ export interface RouterCreatePayload {
   username: string;
   password: string;
   api_port?: number;
+  ssh_port?: number;
   use_ssl?: boolean;
   site?: string;
   isp_gateway?: string;

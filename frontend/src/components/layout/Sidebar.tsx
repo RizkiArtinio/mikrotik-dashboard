@@ -30,6 +30,7 @@ const NAV_ITEMS = [
   { to: "/vpn", label: "VPN Status", icon: <VpnKeyIcon /> },
   { to: "/vpn/generate", label: "VPN Generator (WireGuard)", icon: <VpnKeyIcon /> },
   { to: "/vpn/generate-l2tp", label: "VPN Generator (L2TP)", icon: <VpnKeyIcon /> },
+  { to: "/vpn/generate-ovpn", label: "VPN Generator (OpenVPN)", icon: <VpnKeyIcon /> },
   { to: "/backup", label: "Backup", icon: <BackupIcon /> },
   { to: "/isp", label: "ISP Monitoring", icon: <PublicIcon /> },
   { to: "/firewall", label: "Firewall", icon: <SecurityIcon /> },

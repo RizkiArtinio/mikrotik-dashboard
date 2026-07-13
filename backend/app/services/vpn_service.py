@@ -9,9 +9,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.router import Router
 from app.models.vpn_peer import VPNPeer, VpnPeerStatus, VpnType
-from app.schemas.vpn_peer import L2tpPeerCreate, L2tpPeerResult, VPNPeerOut, WireguardPeerCreate, WireguardPeerResult
+from app.schemas.vpn_peer import (
+    L2tpPeerCreate,
+    L2tpPeerResult,
+    OvpnPeerCreate,
+    OvpnPeerResult,
+    VPNPeerOut,
+    WireguardPeerCreate,
+    WireguardPeerResult,
+)
 from app.services.qr_service import generate_qr_base64
 from app.services.router_service import RouterCommandError, RouterService
+from app.services.sftp_client import fetch_to_text
 from app.services.wireguard_keygen import generate_keypair
 
 
@@ -234,6 +243,104 @@ async def create_l2tp_peer(
         username=username,
         password=password,
         ipsec_psk=ipsec_psk,
+    )
+
+
+# RouterOS reports cipher names in its own lowercase form (e.g. "aes256-cbc",
+# "blowfish128") — OpenVPN client configs expect their upstream OpenSSL
+# names (e.g. "AES-256-CBC", "BF-CBC").
+_CIPHER_TO_OPENVPN = {
+    "aes128-cbc": "AES-128-CBC",
+    "aes192-cbc": "AES-192-CBC",
+    "aes256-cbc": "AES-256-CBC",
+    "blowfish128": "BF-CBC",
+}
+
+
+def _build_ovpn_config(*, server_address: str, port: int, protocol: str, cipher: str, auth: str, ca_pem: str) -> str:
+    ovpn_cipher = _CIPHER_TO_OPENVPN.get(cipher.lower(), cipher.upper())
+    ovpn_auth = auth.upper()
+    return (
+        "client\n"
+        "dev tun\n"
+        f"proto {protocol}\n"
+        f"remote {server_address} {port}\n"
+        "resolv-retry infinite\n"
+        "nobind\n"
+        "persist-key\n"
+        "persist-tun\n"
+        "auth-user-pass\n"
+        f"cipher {ovpn_cipher}\n"
+        f"auth {ovpn_auth}\n"
+        "verb 3\n"
+        "<ca>\n"
+        f"{ca_pem.strip()}\n"
+        "</ca>\n"
+    )
+
+
+async def create_ovpn_peer(
+    db: AsyncSession, router: Router, payload: OvpnPeerCreate, created_by_user_id: int | None
+) -> OvpnPeerResult:
+    service = RouterService(router)
+
+    existing_secrets = {s["name"] for s in await asyncio.to_thread(service.get_ppp_secrets)}
+
+    username = payload.username
+    if not username:
+        username = _generate_username()
+        while username in existing_secrets:
+            username = _generate_username()
+    elif username in existing_secrets:
+        raise VpnServiceError(f"A PPP secret named '{username}' already exists on this router.")
+
+    password = payload.password or _generate_password()
+
+    server_config = await asyncio.to_thread(service.get_ovpn_server_config)
+    if not server_config["enabled"]:
+        raise VpnServiceError("OpenVPN server is not enabled on this router.")
+
+    try:
+        await asyncio.to_thread(
+            service.create_ppp_secret, username, password, "ovpn", "default", payload.description
+        )
+    except RouterCommandError as exc:
+        raise VpnServiceError(str(exc)) from exc
+
+    try:
+        ca_filename = await asyncio.to_thread(service.export_certificate_pem, "CA")
+        # Give RouterOS a moment to flush the export to disk before fetching.
+        await asyncio.sleep(1)
+        ca_pem = await asyncio.to_thread(fetch_to_text, router, ca_filename)
+    except Exception as exc:
+        raise VpnServiceError(
+            f"OpenVPN account was created, but the CA certificate could not be retrieved via SFTP "
+            f"(check SSH is enabled on the router at Router.ssh_port): {exc}"
+        ) from exc
+
+    config_text = _build_ovpn_config(
+        server_address=router.ip_address,
+        port=server_config["port"],
+        protocol=server_config["protocol"],
+        cipher=server_config["cipher"],
+        auth=server_config["auth"],
+        ca_pem=ca_pem,
+    )
+
+    peer = VPNPeer(
+        router_id=router.id,
+        peer_name=username,
+        vpn_type=VpnType.openvpn,
+        description=payload.description,
+        status=VpnPeerStatus.configured,
+        created_by_user_id=created_by_user_id,
+    )
+    db.add(peer)
+    await db.commit()
+    await db.refresh(peer)
+
+    return OvpnPeerResult(
+        peer=VPNPeerOut.model_validate(peer), config_text=config_text, username=username, password=password
     )
 
 

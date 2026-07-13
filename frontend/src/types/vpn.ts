@@ -48,3 +48,18 @@ export interface L2tpPeerResult {
   password: string;
   ipsec_psk: string | null;
 }
+
+export interface OvpnPeerCreatePayload {
+  /** Leave empty to auto-generate. */
+  username?: string;
+  /** Leave empty to auto-generate. */
+  password?: string;
+  description?: string;
+}
+
+export interface OvpnPeerResult {
+  peer: VpnPeer;
+  config_text: string;
+  username: string;
+  password: string;
+}

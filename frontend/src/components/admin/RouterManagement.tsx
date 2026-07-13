@@ -31,6 +31,7 @@ const EMPTY: RouterCreatePayload = {
   username: "admin",
   password: "",
   api_port: 8728,
+  ssh_port: 22,
   use_ssl: false,
   site: "",
   isp_gateway: "",
@@ -44,6 +45,7 @@ function toUpdatePayload(r: RouterItem): RouterUpdatePayload {
     ip_address: r.ip_address,
     username: r.username,
     api_port: r.api_port,
+    ssh_port: r.ssh_port,
     site: r.site ?? "",
     isp_gateway: r.isp_gateway ?? "",
     wireguard_endpoint: r.wireguard_endpoint ?? "",
@@ -156,6 +158,13 @@ export function RouterManagement() {
             <TextField label="Username" required value={form.username} onChange={field("username")} />
             <TextField label="Password" required type="password" value={form.password} onChange={field("password")} />
             <TextField label="API Port" type="number" value={form.api_port} onChange={field("api_port")} />
+            <TextField
+              label="SSH Port"
+              type="number"
+              helperText="Untuk ambil file backup & sertifikat OpenVPN dari router"
+              value={form.ssh_port}
+              onChange={field("ssh_port")}
+            />
             <TextField label="Site" value={form.site} onChange={field("site")} />
             <TextField label="ISP Gateway" value={form.isp_gateway} onChange={field("isp_gateway")} />
             <TextField
@@ -193,6 +202,7 @@ export function RouterManagement() {
               onChange={editField("password")}
             />
             <TextField label="API Port" type="number" value={editForm.api_port ?? ""} onChange={editField("api_port")} />
+            <TextField label="SSH Port" type="number" value={editForm.ssh_port ?? ""} onChange={editField("ssh_port")} />
             <TextField label="Site" value={editForm.site ?? ""} onChange={editField("site")} />
             <TextField label="ISP Gateway" value={editForm.isp_gateway ?? ""} onChange={editField("isp_gateway")} />
             <TextField

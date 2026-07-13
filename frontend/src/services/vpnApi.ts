@@ -2,6 +2,8 @@ import { apiClient } from "./apiClient";
 import type {
   L2tpPeerCreatePayload,
   L2tpPeerResult,
+  OvpnPeerCreatePayload,
+  OvpnPeerResult,
   VpnPeer,
   WireguardPeerCreatePayload,
   WireguardPeerResult,
@@ -17,4 +19,6 @@ export const vpnApi = {
     (await apiClient.post<WireguardPeerResult>(`/routers/${routerId}/vpn/wireguard-peer`, payload)).data,
   createL2tpPeer: async (routerId: number, payload: L2tpPeerCreatePayload): Promise<L2tpPeerResult> =>
     (await apiClient.post<L2tpPeerResult>(`/routers/${routerId}/vpn/l2tp-peer`, payload)).data,
+  createOvpnPeer: async (routerId: number, payload: OvpnPeerCreatePayload): Promise<OvpnPeerResult> =>
+    (await apiClient.post<OvpnPeerResult>(`/routers/${routerId}/vpn/ovpn-peer`, payload)).data,
 };

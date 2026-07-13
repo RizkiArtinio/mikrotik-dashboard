@@ -9,6 +9,7 @@ class RouterCreate(BaseModel):
     username: str
     password: str = Field(..., description="Plaintext router password — encrypted before storage")
     api_port: int = 8728
+    ssh_port: int = 22
     use_ssl: bool = False
     site: str | None = None
     isp_gateway: str | None = None
@@ -22,6 +23,7 @@ class RouterUpdate(BaseModel):
     username: str | None = None
     password: str | None = None
     api_port: int | None = None
+    ssh_port: int | None = None
     use_ssl: bool | None = None
     site: str | None = None
     isp_gateway: str | None = None
@@ -36,6 +38,7 @@ class RouterOut(BaseModel):
     ip_address: str
     username: str
     api_port: int
+    ssh_port: int
     use_ssl: bool
     site: str | None
     isp_gateway: str | None

@@ -1,10 +1,11 @@
-"""Inbound Telegram bot: lets whitelisted chat IDs generate L2TP VPN accounts
-via chat commands (/generate). Separate from notifiers/telegram_notifier.py,
-which only sends outbound alerts — this module also polls Telegram for
-incoming messages.
+"""Inbound Telegram bot: lets whitelisted chat IDs generate VPN accounts
+(L2TP/IPsec, OpenVPN) and list existing ones via chat commands. Separate
+from notifiers/telegram_notifier.py, which only sends outbound alerts —
+this module also polls Telegram for incoming messages.
 """
 
 import asyncio
+import html
 import logging
 import re
 
@@ -14,22 +15,39 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.db.session import AsyncSessionLocal
 from app.models.router import Router
-from app.schemas.vpn_peer import L2tpPeerCreate
-from app.services.vpn_service import VpnServiceError, create_l2tp_peer
+from app.models.vpn_peer import VPNPeer, VpnPeerStatus
+from app.schemas.vpn_peer import L2tpPeerCreate, OvpnPeerCreate
+from app.services.vpn_service import VpnServiceError, create_l2tp_peer, create_ovpn_peer
 
 logger = logging.getLogger(__name__)
 
 API_BASE = "https://api.telegram.org/bot{token}"
 
+NAME_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,30}")
+
 HELP_TEXT = (
-    "*MikroTik Dashboard Bot*\n\n"
-    "/generate <nama> — buat akun VPN L2TP baru\n"
-    "/generate <router_id> <nama> — buat VPN di router tertentu (kalau ada lebih dari satu router)\n"
-    "/routers — daftar router aktif\n"
-    "/help — tampilkan bantuan ini"
+    "🤖 <b>MikroTik Dashboard Bot</b>\n\n"
+    "🔑 <b>Buat akun VPN</b>\n"
+    "<code>/l2tp [nama]</code> — akun L2TP/IPsec baru\n"
+    "<code>/ovpn [nama]</code> — akun OpenVPN baru (+ file .ovpn)\n"
+    "<i>Nama opsional — kosongkan untuk auto-generate. Kalau ada lebih dari "
+    "satu router: /l2tp &lt;router_id&gt; [nama]</i>\n\n"
+    "📋 <b>Info</b>\n"
+    "<code>/list</code> — daftar akun VPN yang sudah dibuat\n"
+    "<code>/routers</code> — daftar router aktif\n"
+    "<code>/help</code> — tampilkan pesan ini"
 )
 
-NAME_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,30}")
+UNKNOWN_COMMAND_TEXT = (
+    "❓ Perintah tidak dikenal.\n\n" "Ketik /help untuk lihat daftar perintah yang tersedia."
+)
+
+STATUS_EMOJI = {
+    VpnPeerStatus.connected: "🟢",
+    VpnPeerStatus.configured: "⚪",
+    VpnPeerStatus.disconnected: "🔴",
+    VpnPeerStatus.unknown: "⚫",
+}
 
 
 class TelegramBot:
@@ -86,96 +104,190 @@ class TelegramBot:
 
         if chat_id not in settings.telegram_allowed_chat_id_list:
             logger.warning("Telegram command from unauthorized chat_id=%s ignored: %s", chat_id, text)
-            await self._send(chat_id, "Maaf, Anda tidak memiliki akses ke bot ini.")
+            await self._send(chat_id, "🚫 Maaf, Anda tidak memiliki akses ke bot ini.")
             return
 
+        command, *_ = text.split(maxsplit=1)
+        command = command.split("@")[0].lower()  # strip "/cmd@BotName" group-chat suffix
+
         try:
-            if text.startswith("/start") or text.startswith("/help"):
+            if command in ("/start", "/help"):
                 await self._send(chat_id, HELP_TEXT)
-            elif text.startswith("/routers"):
+            elif command == "/routers":
                 await self._cmd_routers(chat_id)
-            elif text.startswith("/generate"):
-                await self._cmd_generate(chat_id, text)
+            elif command == "/list":
+                await self._cmd_list(chat_id, text)
+            elif command == "/l2tp":
+                await self._cmd_generate(chat_id, text, vpn_kind="l2tp")
+            elif command in ("/ovpn", "/openvpn"):
+                await self._cmd_generate(chat_id, text, vpn_kind="ovpn")
+            elif command == "/generate":
+                # Back-compat alias from the first version of this bot.
+                await self._cmd_generate(chat_id, text, vpn_kind="l2tp")
             else:
-                await self._send(chat_id, "Perintah tidak dikenal. Ketik /help untuk daftar perintah.")
+                await self._send(chat_id, UNKNOWN_COMMAND_TEXT)
         except Exception:
             logger.exception("Error handling Telegram command: %s", text)
-            await self._send(chat_id, "Terjadi kesalahan saat memproses perintah.")
+            await self._send(chat_id, "⚠️ Terjadi kesalahan saat memproses perintah. Coba lagi beberapa saat lagi.")
+
+    async def _resolve_router(self, db, chat_id: str, parts: list[str]) -> tuple[Router | None, str | None]:
+        """Shared router-selection logic for /l2tp, /ovpn, /list.
+        Returns (router, remaining_arg) or (None, None) if a message was
+        already sent to the user (no router, ambiguous choice, or bad ID)."""
+        result = await db.execute(select(Router).where(Router.is_active.is_(True)))
+        routers = list(result.scalars().all())
+
+        if not routers:
+            await self._send(chat_id, "📭 Belum ada router yang terdaftar di dashboard.")
+            return None, None
+
+        if parts and parts[0].isdigit():
+            router_id = int(parts[0])
+            router_obj = next((r for r in routers if r.id == router_id), None)
+            if router_obj is None:
+                await self._send(
+                    chat_id,
+                    f"❌ Router <code>{router_id}</code> tidak ditemukan.\nKetik /routers untuk lihat daftar ID.",
+                )
+                return None, None
+            return router_obj, (parts[1] if len(parts) > 1 else None)
+
+        if len(routers) == 1:
+            return routers[0], (parts[0] if parts else None)
+
+        await self._send(
+            chat_id,
+            "⚠️ Ada lebih dari satu router terdaftar, sebutkan ID-nya:\n"
+            "<code>/l2tp &lt;router_id&gt; [nama]</code>\n\nKetik /routers untuk lihat daftar ID.",
+        )
+        return None, None
 
     async def _cmd_routers(self, chat_id: str) -> None:
         async with AsyncSessionLocal() as db:
             result = await db.execute(select(Router).where(Router.is_active.is_(True)))
             routers = list(result.scalars().all())
         if not routers:
-            await self._send(chat_id, "Belum ada router yang terdaftar.")
+            await self._send(chat_id, "📭 Belum ada router yang terdaftar.")
             return
-        lines = ["*Router aktif:*"] + [f"`{r.id}` — {r.name} ({r.ip_address})" for r in routers]
+        lines = ["🌐 <b>Router aktif</b>"] + [
+            f"<code>{r.id}</code> — {html.escape(r.name)} ({r.ip_address})" for r in routers
+        ]
         await self._send(chat_id, "\n".join(lines))
 
-    async def _cmd_generate(self, chat_id: str, text: str) -> None:
-        parts = text.split(maxsplit=2)[1:]  # drop the leading "/generate"
+    async def _cmd_list(self, chat_id: str, text: str) -> None:
+        parts = text.split(maxsplit=2)[1:]
+        async with AsyncSessionLocal() as db:
+            router_obj, _ = await self._resolve_router(db, chat_id, parts)
+            if router_obj is None:
+                return
+            result = await db.execute(
+                select(VPNPeer)
+                .where(VPNPeer.router_id == router_obj.id)
+                .order_by(VPNPeer.vpn_type, VPNPeer.peer_name)
+            )
+            peers = list(result.scalars().all())
+
+        if not peers:
+            await self._send(chat_id, f"📭 Belum ada akun VPN di router <b>{html.escape(router_obj.name)}</b>.")
+            return
+
+        lines = [f"🔑 <b>VPN di {html.escape(router_obj.name)}</b>\n"]
+        for p in peers:
+            emoji = STATUS_EMOJI.get(p.status, "⚫")
+            lines.append(f"{emoji} <code>{html.escape(p.peer_name)}</code> — {p.vpn_type.value} ({p.status.value})")
+        await self._send(chat_id, "\n".join(lines))
+
+    async def _cmd_generate(self, chat_id: str, text: str, vpn_kind: str) -> None:
+        parts = text.split(maxsplit=2)[1:]  # drop the leading command word
+
+        usage = (
+            "<code>/l2tp [nama]</code> atau <code>/l2tp &lt;router_id&gt; [nama]</code>"
+            if vpn_kind == "l2tp"
+            else "<code>/ovpn [nama]</code> atau <code>/ovpn &lt;router_id&gt; [nama]</code>"
+        )
 
         async with AsyncSessionLocal() as db:
-            result = await db.execute(select(Router).where(Router.is_active.is_(True)))
-            routers = list(result.scalars().all())
-            if not routers:
-                await self._send(chat_id, "Belum ada router yang terdaftar.")
-                return
-
-            router_obj = None
-            name: str | None = None
-
-            if len(parts) == 2 and parts[0].isdigit():
-                router_id = int(parts[0])
-                router_obj = next((r for r in routers if r.id == router_id), None)
-                name = parts[1]
-                if router_obj is None:
-                    await self._send(chat_id, f"Router {router_id} tidak ditemukan. Ketik /routers untuk daftar.")
-                    return
-            elif len(routers) == 1:
-                router_obj = routers[0]
-                name = parts[0] if parts else None
-            else:
-                await self._send(
-                    chat_id,
-                    "Ada lebih dari satu router terdaftar. Gunakan format:\n"
-                    "`/generate <router_id> <nama>`\n\nKetik /routers untuk lihat daftar ID.",
-                )
+            router_obj, name = await self._resolve_router(db, chat_id, parts)
+            if router_obj is None:
                 return
 
             if name and not NAME_PATTERN.fullmatch(name):
-                await self._send(chat_id, "Nama hanya boleh huruf, angka, - dan _, maksimal 30 karakter.")
+                await self._send(
+                    chat_id,
+                    f"❌ Nama tidak valid: <code>{html.escape(name)}</code>\n"
+                    "Hanya huruf, angka, <code>-</code> dan <code>_</code>, maksimal 30 karakter.\n\n"
+                    f"Format: {usage}",
+                )
                 return
+
+            await self._send(chat_id, "⏳ Sedang membuat akun VPN, tunggu sebentar...")
 
             try:
-                peer_result = await create_l2tp_peer(
-                    db,
-                    router_obj,
-                    L2tpPeerCreate(username=name, description="Generated via Telegram"),
-                    created_by_user_id=None,
-                )
+                if vpn_kind == "l2tp":
+                    result = await create_l2tp_peer(
+                        db, router_obj, L2tpPeerCreate(username=name, description="Generated via Telegram"),
+                        created_by_user_id=None,
+                    )
+                else:
+                    result = await create_ovpn_peer(
+                        db, router_obj, OvpnPeerCreate(username=name, description="Generated via Telegram"),
+                        created_by_user_id=None,
+                    )
             except VpnServiceError as exc:
-                await self._send(chat_id, f"Gagal membuat VPN: {exc}")
+                await self._send(
+                    chat_id, f"❌ Gagal membuat VPN: {html.escape(str(exc))}\n\nFormat perintah: {usage}"
+                )
                 return
 
-        message = (
-            "*VPN L2TP/IPsec berhasil dibuat!*\n\n"
-            f"Server: `{peer_result.server_address}`\n"
-            f"Username: `{peer_result.username}`\n"
-            f"Password: `{peer_result.password}`\n"
-            f"IPsec PSK: `{peer_result.ipsec_psk}`\n\n"
-            "Setting di HP: Settings → VPN → Tambah → Tipe *L2TP/IPSec PSK*, "
-            "isi Server/Username/Password/IPsec pre-shared key sesuai di atas."
-        )
-        await self._send(chat_id, message)
+        if vpn_kind == "l2tp":
+            message = (
+                "✅ <b>VPN L2TP/IPsec berhasil dibuat!</b>\n\n"
+                f"🌐 Server: <code>{result.server_address}</code>\n"
+                f"👤 Username: <code>{result.username}</code>\n"
+                f"🔒 Password: <code>{result.password}</code>\n"
+                f"🔑 IPsec PSK: <code>{result.ipsec_psk}</code>\n\n"
+                "📱 <i>Setting di HP: Settings → VPN → Tambah → Tipe L2TP/IPSec PSK, "
+                "isi data di atas.</i>"
+            )
+            await self._send(chat_id, message)
+        else:
+            message = (
+                "✅ <b>Akun OpenVPN berhasil dibuat!</b>\n\n"
+                f"👤 Username: <code>{result.username}</code>\n"
+                f"🔒 Password: <code>{result.password}</code>\n\n"
+                "📎 File konfigurasi terlampir di bawah ini — import ke app "
+                "<b>OpenVPN Connect</b>, lalu connect pakai username/password di atas."
+            )
+            await self._send(chat_id, message)
+            await self._send_document(
+                chat_id, filename=f"{result.peer.peer_name}.ovpn", content=result.config_text.encode()
+            )
 
     async def _send(self, chat_id: str, text: str) -> None:
         if not self._client:
             return
         try:
-            await self._client.post("/sendMessage", json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"})
+            resp = await self._client.post(
+                "/sendMessage", json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
+            )
+            if resp.status_code >= 400:
+                logger.warning("Telegram sendMessage rejected (%s): %s", resp.status_code, resp.text)
         except httpx.HTTPError as exc:
             logger.warning("Failed to send Telegram message: %s", exc)
+
+    async def _send_document(self, chat_id: str, filename: str, content: bytes) -> None:
+        if not self._client:
+            return
+        try:
+            resp = await self._client.post(
+                "/sendDocument",
+                data={"chat_id": chat_id},
+                files={"document": (filename, content, "application/octet-stream")},
+            )
+            if resp.status_code >= 400:
+                logger.warning("Telegram sendDocument rejected (%s): %s", resp.status_code, resp.text)
+        except httpx.HTTPError as exc:
+            logger.warning("Failed to send Telegram document: %s", exc)
 
 
 telegram_bot = TelegramBot()

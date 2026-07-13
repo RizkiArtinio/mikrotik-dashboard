@@ -12,6 +12,7 @@ import InterfacesPage from "@/pages/InterfacesPage";
 import IspPage from "@/pages/IspPage";
 import L2tpGeneratorPage from "@/pages/L2tpGeneratorPage";
 import LoginPage from "@/pages/LoginPage";
+import OvpnGeneratorPage from "@/pages/OvpnGeneratorPage";
 import RouterAdminPage from "@/pages/RouterAdminPage";
 import UserAdminPage from "@/pages/UserAdminPage";
 import UsersActivityPage from "@/pages/UsersActivityPage";
@@ -45,6 +46,14 @@ export function AppRoutes() {
                   element={
                     <RoleGate roles={["super_admin", "network_engineer"]}>
                       <L2tpGeneratorPage />
+                    </RoleGate>
+                  }
+                />
+                <Route
+                  path="vpn/generate-ovpn"
+                  element={
+                    <RoleGate roles={["super_admin", "network_engineer"]}>
+                      <OvpnGeneratorPage />
                     </RoleGate>
                   }
                 />

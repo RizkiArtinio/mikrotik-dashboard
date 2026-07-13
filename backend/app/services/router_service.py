@@ -205,6 +205,29 @@ class RouterService:
             return None
         return rows[0].get("ipsec-secret")
 
+    def get_ovpn_server_config(self) -> dict:
+        rows = self._safe_get("/interface/ovpn-server/server")
+        r = rows[0] if rows else {}
+        return {
+            "enabled": r.get("enabled") == "true",
+            "port": int(r.get("port", 1194) or 1194),
+            "protocol": r.get("protocol", "tcp"),
+            "cipher": (r.get("cipher") or "aes256-cbc").split(",")[0],
+            "auth": (r.get("auth") or "sha256").split(",")[0],
+        }
+
+    def export_certificate_pem(self, cert_name: str) -> str:
+        """Triggers a PEM export of `cert_name` to the router's local
+        filesystem as `cert_export_<cert_name>.crt`. Caller is responsible
+        for fetching the actual file contents via SFTP (sftp_client.py) —
+        the RouterOS API itself has no "read file contents" command."""
+        with connection_pool.get_io_lock(self.router.id):
+            try:
+                self._resource("/certificate").call("export-certificate", {"numbers": cert_name, "type": "pem"})
+            except RouterOsApiCommunicationError as exc:
+                raise RouterCommandError(f"Failed to export certificate {cert_name}: {exc}") from exc
+        return f"cert_export_{cert_name}.crt"
+
     def get_hotspot_active(self) -> list[dict]:
         try:
             rows = self._safe_get("/ip/hotspot/active")

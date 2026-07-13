@@ -39,6 +39,19 @@ class L2tpPeerResult(BaseModel):
     ipsec_psk: str | None
 
 
+class OvpnPeerCreate(BaseModel):
+    username: str | None = Field(default=None, description="Leave empty to auto-generate")
+    password: str | None = Field(default=None, description="Leave empty to auto-generate")
+    description: str | None = None
+
+
+class OvpnPeerResult(BaseModel):
+    peer: "VPNPeerOut"
+    config_text: str
+    username: str
+    password: str
+
+
 class VPNPeerOut(BaseModel):
     id: int
     router_id: int
@@ -61,3 +74,4 @@ class VPNPeerOut(BaseModel):
 
 WireguardPeerResult.model_rebuild()
 L2tpPeerResult.model_rebuild()
+OvpnPeerResult.model_rebuild()

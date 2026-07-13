@@ -36,6 +36,7 @@ async def create_router(payload: RouterCreate, db: AsyncSession = Depends(get_db
         username=payload.username,
         password_encrypted=encrypt_secret(payload.password),
         api_port=payload.api_port,
+        ssh_port=payload.ssh_port,
         use_ssl=payload.use_ssl,
         site=payload.site,
         isp_gateway=payload.isp_gateway,

@@ -2,14 +2,13 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 
-import paramiko
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.crypto import decrypt_secret
 from app.models.backup import Backup, BackupTrigger, BackupType
 from app.models.router import Router
 from app.services.router_service import RouterCommandError, RouterConnectionError, RouterService
+from app.services.sftp_client import fetch_to_path
 from app.utils.file_utils import file_size_bytes, router_backup_dir
 
 logger = logging.getLogger(__name__)
@@ -17,19 +16,6 @@ logger = logging.getLogger(__name__)
 
 class BackupServiceError(Exception):
     pass
-
-
-def _fetch_via_sftp(router: Router, remote_filename: str, local_path: str) -> None:
-    transport = paramiko.Transport((router.ip_address, 22))
-    try:
-        transport.connect(username=router.username, password=decrypt_secret(router.password_encrypted))
-        sftp = paramiko.SFTPClient.from_transport(transport)
-        try:
-            sftp.get(remote_filename, local_path)
-        finally:
-            sftp.close()
-    finally:
-        transport.close()
 
 
 async def run_backup(db: AsyncSession, router: Router, triggered_by: BackupTrigger) -> list[Backup]:
@@ -54,7 +40,7 @@ async def run_backup(db: AsyncSession, router: Router, triggered_by: BackupTrigg
     ):
         local_path = local_dir / remote_name
         try:
-            await asyncio.to_thread(_fetch_via_sftp, router, remote_name, str(local_path))
+            await asyncio.to_thread(fetch_to_path, router, remote_name, str(local_path))
         except Exception as exc:
             logger.error("Failed to fetch %s from router %s via SFTP: %s", remote_name, router.id, exc)
             continue
