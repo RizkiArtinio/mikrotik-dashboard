@@ -354,7 +354,13 @@ class RouterService:
         with connection_pool.get_io_lock(self.router.id):
             try:
                 self._resource("/system/backup").call("save", {"name": name})
-                self._resource("/export").call("export", {"file": name})
+                # "/export" is a top-level command, not a CRUD resource — the
+                # command word is sent as "export" against the root path "/",
+                # same pattern as `/system reboot` (see connect()/get_api()
+                # callers using RouterService._resource("/system").call("reboot", ...)).
+                # Calling _resource("/export").call("export", ...) instead
+                # sends the invalid path "/export/export" ("no such command").
+                self._resource("/").call("export", {"file": name})
             except RouterOsApiCommunicationError as exc:
                 raise RouterCommandError(f"Backup command failed: {exc}") from exc
         return {"backup_file": f"{name}.backup", "rsc_file": f"{name}.rsc"}
